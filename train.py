@@ -49,7 +49,7 @@ GAMES = {
         outputs=["left", "straight", "right"],
         hidden=16,
         generations=100,
-        max_frames=8000,
+        max_frames=200000,
     ),
 }
 
