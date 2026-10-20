@@ -352,6 +352,10 @@ def watch(game):
         print(f"No trained network yet ({path}). Train one first: python train.py --game {game}")
         return
     pop = load_best(path)
+    if pop["W1"].shape[2] != cfg["batch"].N_OBS:
+        print(f"{path} was trained on an older version of the game. "
+              f"Train again: python train.py --game {game}")
+        return
     viewer = Viewer(cfg, f"{game} AI - best network")
     history, run = [], 0
     while True:
