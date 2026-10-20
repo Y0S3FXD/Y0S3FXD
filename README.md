@@ -33,11 +33,18 @@ Plays like the Chrome offline dino game:
 
 A ball rolls down an endless neon track. Steer with `LEFT`/`RIGHT` (or `A`/`D`).
 - **Gets harder:** speed climbs to about 2.5x the starting speed. The track curves more sharply, gets narrower (down to 3 tiles), and has more obstacles the further you go.
-- **Ways to die:** roll off the edge, fall through a hole, or smash into a red block.
-- **Always beatable:** every obstacle row leaves at least two neighbouring lanes open.
+- **Ramps and jumps:** a ramp (yellow edges) launches the ball over a gap onto a lower platform. The platform may be shifted sideways, so you steer in the air to land on it. A glowing shadow shows where you'll come down.
+- **Drops:** the track steps down a level, and the ball flies off the edge onto the lower part.
+- **Moving blocks:** some red blocks slide from side to side.
+- **Ways to die:** roll off the edge, fall through a hole, miss a landing, or smash into a red block.
+- **Always beatable:**
+  - Every obstacle leaves two neighbouring lanes open, and that opening is never further than the ball can reach in time, even at top speed.
+  - Moving blocks never reach two neighbouring lanes.
+  - Every jump can be cleared, because gravity bends the ball's path by the same amount per tile at any speed.
+  - After each landing there's a stretch with no obstacles.
 - **Looks:** a pseudo-3D downhill view, tiles with visible thickness, a rolling ball, falling and shattering animations, and a saved high score.
 
-**Why it's harder than the dino game:** the dino only has to time a jump or duck. In Slope the AI has to choose a direction, commit to it, and plan ahead with momentum. Its steering is slidey and the track keeps moving under it.
+**Why it's harder than the dino game:** the dino only has to time a jump or duck. In Slope the AI has to choose a direction, commit to it, and plan ahead with momentum. Its steering is slidey, the track keeps moving under it, blocks move, and it has to aim its landings in mid-air.
 
 ## What you're looking at
 
@@ -46,7 +53,7 @@ A ball rolls down an endless neon track. Steer with `LEFT`/`RIGHT` (or `A`/`D`).
 **Bottom left:** the leader's brain.
 - **Inputs (left):** the numbers it sees.
   - **Dino (8 inputs):** distance to the next obstacle, its size and height, the next obstacle after that, the dino's own height and vertical speed, and the game speed.
-  - **Slope (9 inputs):** 7 **rays** fanned out in front of the ball (at -70° to +70°). Each one reports how far it gets before hitting an edge, a hole or a block (1.00 = clear for 10 tiles). The other two are the ball's sideways velocity and the game speed. The rays are drawn on the track in the training view: blue means clear, red means danger close.
+  - **Slope (9 inputs):** 7 **rays** fanned out in front of the ball (at -70° to +70°). Each one reports how far it gets before hitting an edge, a hole or a block (1.00 = clear for 10 tiles). The other two are the ball's sideways velocity and the game speed. The rays see straight across jump gaps, so in mid-air the AI can see where the landing platform is. The rays are drawn on the track in the training view: blue means clear, red means danger close.
 - **Lines:** the weights. Blue is positive, red is negative, and thicker means a larger value.
 - **Circles:** each neuron's activation, with brighter meaning stronger. Hidden neurons use `tanh`.
 - **Outputs (right):** run / jump / duck (dino) or left / straight / right (Slope). The one outlined in black has the highest score, and that's the action taken.
