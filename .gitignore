@@ -1,3 +1,5 @@
 __pycache__/
 best_dino.npz
 highscore.txt
+best_slope.npz
+slope_highscore.txt

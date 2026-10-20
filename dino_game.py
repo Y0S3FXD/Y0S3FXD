@@ -159,6 +159,33 @@ class DinoGame:
         ], dtype=np.float32)
 
 
+class DinoBatch:
+    """n games on the same level, stepped together (what the trainer uses)."""
+
+    N_OBS = DinoGame.N_OBS
+
+    def __init__(self, n, seed=None):
+        self.n = n
+        self.games = [DinoGame(seed) for _ in range(n)]
+        self.alive = np.ones(n, dtype=bool)
+        self.scores = np.zeros(n, dtype=int)
+        self.obs = np.stack([g.observe() for g in self.games])
+        self.frames = 0
+
+    def step(self, actions):
+        for i in np.flatnonzero(self.alive):
+            obs, _, done = self.games[i].step(actions[i])
+            self.obs[i] = obs
+            self.scores[i] = self.games[i].score
+            if done:
+                self.alive[i] = False
+        self.frames += 1
+
+    @property
+    def display_scores(self):
+        return np.array([g.display_score for g in self.games])
+
+
 # --- Drawing (pygame) ------------------------------------------------------------
 DAY_BG, DAY_INK = (247, 247, 247), (83, 83, 83)
 NIGHT_BG, NIGHT_INK = (32, 33, 36), (210, 210, 210)
@@ -341,6 +368,20 @@ class Renderer:
         pg.draw.polygon(self.screen, ink, [(cx + 8, cy - 14), (cx + 16, cy - 4),
                                            (cx + 4, cy - 2)])
 
+    def update_population(self, batch, lead, frames=1):
+        self.update(batch.games[lead], frames)
+
+    def draw_population(self, batch, lead, hi_score=0):
+        """Leader drawn solid, every other living dino as a faint ghost."""
+        game = batch.games[lead]
+        self.draw_world(game)
+        for i in np.flatnonzero(batch.alive):
+            if i != lead:
+                hue = (i * 47) % 200
+                self.draw_dino(batch.games[i], (hue, 120, 255 - hue, 45))
+        self.draw_dino(game)
+        self.draw_score(game, hi_score)
+
     def draw(self, game, hi_score=0):
         self.draw_world(game)
         self.draw_dino(game)
@@ -383,17 +424,17 @@ class Sounds:
 HI_SCORE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "highscore.txt")
 
 
-def load_hi_score():
+def load_hi_score(path=HI_SCORE_FILE):
     try:
-        with open(HI_SCORE_FILE) as f:
+        with open(path) as f:
             return int(f.read().strip() or 0)
     except (OSError, ValueError):
         return 0
 
 
-def save_hi_score(score):
+def save_hi_score(score, path=HI_SCORE_FILE):
     try:
-        with open(HI_SCORE_FILE, "w") as f:
+        with open(path, "w") as f:
             f.write(str(score))
     except OSError:
         pass

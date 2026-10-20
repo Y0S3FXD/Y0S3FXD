@@ -1,4 +1,4 @@
-"""Teach a population of tiny neural networks to play the dino game.
+"""Teach a population of tiny neural networks to play the dino game or Slope.
 
 Method: neuroevolution (a genetic algorithm over network weights).
   1. Create POP random networks.
@@ -8,56 +8,74 @@ Method: neuroevolution (a genetic algorithm over network weights).
   5. Repeat. No gradients and no backprop, just survival of the fittest.
 
 Usage:
-    python train.py                  # train and watch it live
-    python train.py --headless       # train fast with no window
-    python train.py --watch          # watch the saved best network play
+    python train.py                         # dino: train and watch it live
+    python train.py --game slope            # Slope: train and watch it live
+    python train.py --game slope --headless # train fast with no window
+    python train.py --game slope --watch    # watch the saved best network play
 
 While watching:
     UP / DOWN   simulation speed (frames per screen update)
     F           fast-forward: skip drawing until this generation ends
     B           show / hide the brain panel
+    R           show / hide the AI's sight rays (Slope)
     ESC         quit (the best network is saved after every generation)
 """
 
 import argparse
+import os
 
 import numpy as np
 
-from dino_game import HEIGHT, N_ACTIONS, WIDTH, DinoGame, Renderer
+import dino_game
+import slope_game
 
-N_IN = DinoGame.N_OBS
-N_HIDDEN = 10
-N_OUT = N_ACTIONS
+# Everything the trainer needs to know about each game.
+GAMES = {
+    "dino": dict(
+        batch=dino_game.DinoBatch,
+        renderer=dino_game.Renderer,
+        size=(dino_game.WIDTH, dino_game.HEIGHT),
+        inputs=["dist 1", "width", "bottom", "top", "dist 2", "dino y", "dino vy", "speed"],
+        outputs=["run", "jump", "duck"],
+        hidden=10,
+        generations=50,
+        max_frames=8000,
+    ),
+    "slope": dict(
+        batch=slope_game.SlopeBatch,
+        renderer=slope_game.SlopeRenderer,
+        size=(slope_game.WIDTH, slope_game.HEIGHT),
+        inputs=[f"ray {a:+d}°" for a in slope_game.RAY_ANGLES_DEG] + ["side vel", "speed"],
+        outputs=["left", "straight", "right"],
+        hidden=16,
+        generations=100,
+        max_frames=8000,
+    ),
+}
 
 POP = 150           # networks per generation
 ELITES = 8          # best ones copied unchanged into the next generation
 PARENTS = 25        # top-N that are allowed to have children
 MUTATION_RATE = 0.15
 MUTATION_STRENGTH = 0.4
-MAX_FRAMES = 8000   # end a generation if someone survives this long
-
-SAVE_PATH = "best_dino.npz"
-
-INPUT_NAMES = ["dist 1", "width", "bottom", "top", "dist 2", "dino y", "dino vy", "speed"]
-OUTPUT_NAMES = ["run", "jump", "duck"]
 
 
 # --- The neural network ------------------------------------------------------------
 # All POP networks are stored in stacked arrays so one numpy call runs all of them:
-#   W1: (POP, N_HIDDEN, N_IN)  b1: (POP, N_HIDDEN)
-#   W2: (POP, N_OUT, N_HIDDEN) b2: (POP, N_OUT)
+#   W1: (POP, n_hidden, n_in)  b1: (POP, n_hidden)
+#   W2: (POP, n_out, n_hidden) b2: (POP, n_out)
 
-def random_population(n, rng):
+def random_population(n, n_in, n_hidden, n_out, rng):
     return {
-        "W1": rng.normal(0, 1, (n, N_HIDDEN, N_IN)),
-        "b1": rng.normal(0, 1, (n, N_HIDDEN)),
-        "W2": rng.normal(0, 1, (n, N_OUT, N_HIDDEN)),
-        "b2": rng.normal(0, 1, (n, N_OUT)),
+        "W1": rng.normal(0, 1, (n, n_hidden, n_in)),
+        "b1": rng.normal(0, 1, (n, n_hidden)),
+        "W2": rng.normal(0, 1, (n, n_out, n_hidden)),
+        "b2": rng.normal(0, 1, (n, n_out)),
     }
 
 
 def forward(pop, x):
-    """x: (n, N_IN) -> hidden activations (n, N_HIDDEN), output scores (n, N_OUT)."""
+    """x: (n, n_in) -> hidden activations (n, n_hidden), output scores (n, n_out)."""
     hidden = np.tanh(np.einsum("phi,pi->ph", pop["W1"], x) + pop["b1"])
     out = np.einsum("poh,ph->po", pop["W2"], hidden) + pop["b2"]
     return hidden, out
@@ -83,44 +101,50 @@ def next_generation(pop, fitness, rng):
     return child
 
 
-def save_best(pop, idx, path=SAVE_PATH):
+def save_path(game):
+    return f"best_{game}.npz"
+
+
+def save_best(pop, idx, path):
     np.savez(path, **{k: v[idx:idx + 1] for k, v in pop.items()})
 
 
-def load_best(path=SAVE_PATH):
+def load_best(path):
     data = np.load(path)
     return {k: data[k] for k in ("W1", "b1", "W2", "b2")}
 
 
 # --- Running a generation ------------------------------------------------------------
 class Generation:
-    """Every network gets its own copy of the same level (same seed)."""
+    """Every network plays its own copy of the same level (same seed)."""
 
-    def __init__(self, pop, seed):
+    def __init__(self, cfg, pop, seed):
+        self.cfg = cfg
         self.pop = pop
         n = len(pop["W1"])
-        self.games = [DinoGame(seed) for _ in range(n)]
-        self.alive = np.ones(n, dtype=bool)
-        self.fitness = np.zeros(n)
-        self.obs = np.stack([g.observe() for g in self.games])
-        self.hidden = np.zeros((n, N_HIDDEN))
-        self.out = np.zeros((n, N_OUT))
-        self.frames = 0
+        self.env = cfg["batch"](n, seed)
+        self.hidden = np.zeros((n, cfg["hidden"]))
+        self.out = np.zeros((n, len(cfg["outputs"])))
+
+    @property
+    def alive(self):
+        return self.env.alive
+
+    @property
+    def fitness(self):
+        return self.env.scores
+
+    @property
+    def frames(self):
+        return self.env.frames
 
     @property
     def over(self):
-        return not self.alive.any() or self.frames >= MAX_FRAMES
+        return not self.alive.any() or self.frames >= self.cfg["max_frames"]
 
     def step(self):
-        self.hidden, self.out = forward(self.pop, self.obs)
-        actions = self.out.argmax(axis=1)
-        for i in np.flatnonzero(self.alive):
-            obs, _, done = self.games[i].step(actions[i])
-            self.obs[i] = obs
-            self.fitness[i] = self.games[i].score
-            if done:
-                self.alive[i] = False
-        self.frames += 1
+        self.hidden, self.out = forward(self.pop, self.env.obs)
+        self.env.step(self.out.argmax(axis=1))
 
     def leader(self):
         """Index of the network we show in the brain panel."""
@@ -137,19 +161,21 @@ NEG = (220, 60, 60)    # negative weight
 
 
 class Viewer:
-    def __init__(self):
+    def __init__(self, cfg, title):
         import pygame
         self.pg = pygame
         pygame.init()
+        self.cfg = cfg
+        self.width, self.height = cfg["size"]
         self.show_brain = True
-        self.screen = pygame.display.set_mode((WIDTH, HEIGHT + PANEL_H))
-        pygame.display.set_caption("Dino AI - neuroevolution")
+        self.screen = pygame.display.set_mode((self.width, self.height + PANEL_H))
+        pygame.display.set_caption(title)
         self.font = pygame.font.SysFont(None, 22)
         self.big = pygame.font.SysFont(None, 28)
         self.clock = pygame.time.Clock()
         self.steps_per_frame = 1
         self.fast_forward = False
-        self.renderer = Renderer(self.screen)
+        self.renderer = cfg["renderer"](self.screen)
         self.hi_score = 0
 
     def handle_events(self):
@@ -165,34 +191,31 @@ class Viewer:
                     self.steps_per_frame = max(1, self.steps_per_frame // 2)
                 elif e.key == pg.K_f:
                     self.fast_forward = True
+                elif e.key == pg.K_r and hasattr(self.renderer, "show_rays"):
+                    self.renderer.show_rays = not self.renderer.show_rays
                 elif e.key == pg.K_b:
                     self.show_brain = not self.show_brain
                     extra = PANEL_H if self.show_brain else 0
-                    self.screen = pg.display.set_mode((WIDTH, HEIGHT + extra))
+                    self.screen = pg.display.set_mode((self.width, self.height + extra))
                     self.renderer.screen = self.screen
         return True
 
     def text(self, s, pos, color=INK, font=None):
         self.screen.blit((font or self.font).render(s, True, color), pos)
 
-    def draw(self, gen, generation, history, best_ever):
+    def draw(self, gen, generation, history, label="generation"):
         pg, screen, r = self.pg, self.screen, self.renderer
         screen.fill(BG)
         lead = gen.leader()
-        game = gen.games[lead]
 
-        # --- game: every living dino at once, the leader drawn solid ---
-        r.update(game, self.steps_per_frame)
-        r.draw_world(game)
-        for i in np.flatnonzero(gen.alive):
-            if i != lead:
-                hue = (i * 47) % 200
-                r.draw_dino(gen.games[i], (hue, 120, 255 - hue, 45))
-        r.draw_dino(game)
-        self.hi_score = max(self.hi_score, game.display_score)
-        r.draw_score(game, self.hi_score)
+        # --- game: every living player at once, the leader drawn solid ---
+        r.update_population(gen.env, lead, self.steps_per_frame)
+        self.hi_score = max(self.hi_score, int(gen.env.display_scores[lead]))
+        screen.set_clip(pg.Rect(0, 0, self.width, self.height))  # keep it out of the panel
+        r.draw_population(gen.env, lead, self.hi_score)
+        screen.set_clip(None)
 
-        self.text(f"generation {generation}", (10, 10), r.ink, font=self.big)
+        self.text(f"{label} {generation}", (10, 10), r.ink, font=self.big)
         self.text(f"alive {gen.alive.sum()}/{len(gen.alive)}   sim x{self.steps_per_frame}",
                   (10, 36), r.ink)
 
@@ -202,8 +225,8 @@ class Viewer:
 
     def draw_brain(self, gen, lead, history):
         pg, screen = self.pg, self.screen
-        top = HEIGHT
-        pg.draw.line(screen, (210, 210, 210), (0, top), (WIDTH, top), 2)
+        top = self.height
+        pg.draw.line(screen, (210, 210, 210), (0, top), (self.width, top), 2)
         self.draw_network(gen, lead, pg.Rect(10, top + 10, 480, PANEL_H - 20))
         self.draw_chart(history, pg.Rect(510, top + 30, 275, PANEL_H - 70))
 
@@ -211,12 +234,14 @@ class Viewer:
         pg, screen = self.pg, self.screen
         pop = gen.pop
         x_in, x_hid, x_out = area.x + 125, area.x + 285, area.x + 430
+        n_in, n_hid, n_out = pop["W1"].shape[2], pop["W1"].shape[1], pop["W2"].shape[1]
+        r_node = 11 if n_hid <= 12 else 8
 
         def column(n, x):
             gap = area.height / n
             return [(x, int(area.y + gap * (k + 0.5))) for k in range(n)]
 
-        p_in, p_hid, p_out = column(N_IN, x_in), column(N_HIDDEN, x_hid), column(N_OUT, x_out)
+        p_in, p_hid, p_out = column(n_in, x_in), column(n_hid, x_hid), column(n_out, x_out)
 
         # Weights: color = sign, thickness = size.
         def links(W, src, dst):
@@ -234,21 +259,24 @@ class Viewer:
             a = float(np.clip(a, -1, 1))
             c = POS if a >= 0 else NEG
             fill = tuple(int(255 - (255 - ch) * abs(a)) for ch in c)
-            pg.draw.circle(screen, fill, p, 11)
-            pg.draw.circle(screen, (0, 0, 0) if highlight else INK, p, 11, 3 if highlight else 1)
+            pg.draw.circle(screen, fill, p, r_node)
+            pg.draw.circle(screen, (0, 0, 0) if highlight else INK, p, r_node,
+                           3 if highlight else 1)
             if label:
                 img = self.font.render(label, True, INK)
                 screen.blit(img, (p[0] - 18 - img.get_width(), p[1] - 7) if label_left
                             else (p[0] + 18, p[1] - 7))
 
+        obs = gen.env.obs
+        names = self.cfg["inputs"]
         for k, p in enumerate(p_in):
-            neuron(p, gen.obs[i, k], f"{INPUT_NAMES[k]} {gen.obs[i, k]:.2f}")
+            neuron(p, obs[i, k], f"{names[k]} {obs[i, k]:.2f}")
         for k, p in enumerate(p_hid):
             neuron(p, gen.hidden[i, k])
         out = gen.out[i]
         choice = int(out.argmax())
         for k, p in enumerate(p_out):
-            neuron(p, np.tanh(out[k]), OUTPUT_NAMES[k], label_left=False,
+            neuron(p, np.tanh(out[k]), self.cfg["outputs"][k], label_left=False,
                    highlight=k == choice)
 
     def draw_chart(self, history, area):
@@ -277,14 +305,16 @@ class Viewer:
 
 
 # --- Main loops ------------------------------------------------------------------------
-def train(headless, generations, seed):
+def train(game, headless, generations, seed):
+    cfg = GAMES[game]
+    path = save_path(game)
     rng = np.random.default_rng(seed)
-    pop = random_population(POP, rng)
-    viewer = None if headless else Viewer()
+    pop = random_population(POP, cfg["batch"].N_OBS, cfg["hidden"], len(cfg["outputs"]), rng)
+    viewer = None if headless else Viewer(cfg, f"{game} AI - neuroevolution")
     history, best_ever = [], 0
 
     for generation in range(1, generations + 1):
-        gen = Generation(pop, seed=int(rng.integers(1 << 30)))
+        gen = Generation(cfg, pop, seed=int(rng.integers(1 << 30)))
         while not gen.over:
             if viewer and not viewer.fast_forward:
                 for _ in range(viewer.steps_per_frame):
@@ -292,7 +322,7 @@ def train(headless, generations, seed):
                         gen.step()
                 if not viewer.handle_events():
                     return
-                viewer.draw(gen, generation, history, best_ever)
+                viewer.draw(gen, generation, history)
                 viewer.clock.tick(60)
             else:
                 gen.step()
@@ -301,46 +331,53 @@ def train(headless, generations, seed):
 
         if viewer:
             viewer.fast_forward = False
-            viewer.hi_score = max([viewer.hi_score] + [g.display_score for g in gen.games])
+            viewer.hi_score = max(viewer.hi_score, int(gen.env.display_scores.max()))
         best = int(gen.fitness.max())
         history.append((best, float(gen.fitness.mean())))
         if best >= best_ever:
             best_ever = best
-            save_best(pop, int(gen.fitness.argmax()))
+            save_best(pop, int(gen.fitness.argmax()), path)
         print(f"gen {generation:3d}  best {best:5d}  avg {gen.fitness.mean():7.1f}  "
               f"best ever {best_ever}")
         pop = next_generation(pop, gen.fitness, rng)
 
-    print(f"Saved the best network to {SAVE_PATH}. Watch it with: python train.py --watch")
+    print(f"Saved the best network to {path}. "
+          f"Watch it with: python train.py --game {game} --watch")
 
 
-def watch():
-    pop = load_best()
-    viewer = Viewer()
-    history, best_ever, run = [], 0, 0
+def watch(game):
+    cfg = GAMES[game]
+    path = save_path(game)
+    if not os.path.exists(path):
+        print(f"No trained network yet ({path}). Train one first: python train.py --game {game}")
+        return
+    pop = load_best(path)
+    viewer = Viewer(cfg, f"{game} AI - best network")
+    history, run = [], 0
     while True:
         run += 1
-        gen = Generation(pop, seed=None)
+        gen = Generation(cfg, pop, seed=None)
         while not gen.over:
             for _ in range(viewer.steps_per_frame):
                 if not gen.over:
                     gen.step()
             if not viewer.handle_events():
                 return
-            viewer.draw(gen, run, history, best_ever)
+            viewer.draw(gen, run, history, label="run")
             viewer.clock.tick(60)
-        best_ever = max(best_ever, int(gen.fitness[0]))
         history.append((int(gen.fitness[0]), float(gen.fitness[0])))
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
+    ap.add_argument("--game", choices=GAMES, default="dino")
     ap.add_argument("--headless", action="store_true", help="train without a window")
     ap.add_argument("--watch", action="store_true", help="watch the saved best network")
-    ap.add_argument("--generations", type=int, default=50)
+    ap.add_argument("--generations", type=int, help="default depends on the game")
     ap.add_argument("--seed", type=int, default=0)
     args = ap.parse_args()
     if args.watch:
-        watch()
+        watch(args.game)
     else:
-        train(args.headless, args.generations, args.seed)
+        train(args.game, args.headless,
+              args.generations or GAMES[args.game]["generations"], args.seed)
