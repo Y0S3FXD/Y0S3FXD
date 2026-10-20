@@ -23,7 +23,7 @@ import argparse
 
 import numpy as np
 
-from dino_game import GROUND_Y, HEIGHT, N_ACTIONS, WIDTH, DinoGame, draw_dino
+from dino_game import HEIGHT, N_ACTIONS, WIDTH, DinoGame, Renderer
 
 N_IN = DinoGame.N_OBS
 N_HIDDEN = 10
@@ -149,6 +149,8 @@ class Viewer:
         self.clock = pygame.time.Clock()
         self.steps_per_frame = 1
         self.fast_forward = False
+        self.renderer = Renderer(self.screen)
+        self.hi_score = 0
 
     def handle_events(self):
         """Returns False if the user wants to quit."""
@@ -167,32 +169,32 @@ class Viewer:
                     self.show_brain = not self.show_brain
                     extra = PANEL_H if self.show_brain else 0
                     self.screen = pg.display.set_mode((WIDTH, HEIGHT + extra))
+                    self.renderer.screen = self.screen
         return True
 
     def text(self, s, pos, color=INK, font=None):
         self.screen.blit((font or self.font).render(s, True, color), pos)
 
     def draw(self, gen, generation, history, best_ever):
-        pg, screen = self.pg, self.screen
+        pg, screen, r = self.pg, self.screen, self.renderer
         screen.fill(BG)
         lead = gen.leader()
+        game = gen.games[lead]
 
         # --- game: every living dino at once, the leader drawn solid ---
-        pg.draw.line(screen, INK, (0, GROUND_Y), (WIDTH, GROUND_Y), 2)
-        game = gen.games[lead]
-        for o in game.obstacles:
-            color = (60, 140, 60) if o.kind == "cactus" else (120, 80, 160)
-            pg.draw.rect(screen, color, (o.x, GROUND_Y - o.top, o.w, o.h))
-
+        r.update(game, self.steps_per_frame)
+        r.draw_world(game)
         for i in np.flatnonzero(gen.alive):
             if i != lead:
                 hue = (i * 47) % 200
-                draw_dino(screen, gen.games[i], (hue, 120, 255 - hue, 45))
-        draw_dino(screen, game)
+                r.draw_dino(gen.games[i], (hue, 120, 255 - hue, 45))
+        r.draw_dino(game)
+        self.hi_score = max(self.hi_score, game.display_score)
+        r.draw_score(game, self.hi_score)
 
-        self.text(f"generation {generation}", (10, 10), font=self.big)
-        self.text(f"alive {gen.alive.sum()}/{len(gen.alive)}   score {gen.frames}   "
-                  f"best ever {best_ever}   sim x{self.steps_per_frame}", (10, 36))
+        self.text(f"generation {generation}", (10, 10), r.ink, font=self.big)
+        self.text(f"alive {gen.alive.sum()}/{len(gen.alive)}   sim x{self.steps_per_frame}",
+                  (10, 36), r.ink)
 
         if self.show_brain:
             self.draw_brain(gen, lead, history)
@@ -299,6 +301,7 @@ def train(headless, generations, seed):
 
         if viewer:
             viewer.fast_forward = False
+            viewer.hi_score = max([viewer.hi_score] + [g.display_score for g in gen.games])
         best = int(gen.fitness.max())
         history.append((best, float(gen.fitness.mean())))
         if best >= best_ever:

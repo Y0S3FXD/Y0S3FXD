@@ -5,13 +5,21 @@ While it trains you watch the AI play, and you can see its network work in real 
 
 ```bash
 pip install -r requirements.txt
-python dino_game.py           # play it yourself (space = jump, down = duck)
+python dino_game.py           # play it yourself (space = jump, hold for higher; down = duck)
 python train.py               # watch the AI learn
 python train.py --headless    # train fast in the terminal (about 5 s for 25 generations)
 python train.py --watch       # watch the best saved network play
 ```
 
 Training keys: `UP`/`DOWN` change simulation speed, `F` fast-forwards to the end of the generation, `B` shows or hides the brain panel, and `ESC` quits.
+
+## The game
+
+Plays like the Chrome offline dino game:
+- **Gets harder:** speed climbs from 6 to 14, and gaps between obstacles scale with it.
+- **Jump and duck:** tap jump for a small hop or hold it to jump higher. Down ducks, or drops you faster mid-air.
+- **Obstacles:** cacti in groups of 1 to 3, and (after a while) birds with flapping wings at three heights: low (jump), middle (duck) and high (run under).
+- **Looks and sound:** clouds, a scrolling ground, night mode with moon and stars every 700 points, a score that flashes every 100, a saved high score, X-eyes on game over, and generated sounds.
 
 ## What you're looking at
 
