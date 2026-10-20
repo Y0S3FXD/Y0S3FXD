@@ -31,20 +31,30 @@ Plays like the Chrome offline dino game:
 
 ## Slope
 
-A ball rolls down an endless neon track. Steer with `LEFT`/`RIGHT` (or `A`/`D`).
-- **Gets harder:** speed climbs to about 2.5x the starting speed. The track curves more sharply, gets narrower (down to 3 tiles), and has more obstacles the further you go.
-- **Ramps and jumps:** a ramp (yellow edges) launches the ball over a gap onto a lower platform. The platform may be shifted sideways, so you steer in the air to land on it. A glowing shadow shows where you'll come down.
-- **Drops:** the track steps down a level, and the ball flies off the edge onto the lower part.
-- **Moving blocks:** some red blocks slide from side to side.
-- **Ways to die:** roll off the edge, fall through a hole, miss a landing, or smash into a red block.
-- **Always beatable:**
-  - Every obstacle leaves two neighbouring lanes open, and that opening is never further than the ball can reach in time, even at top speed.
-  - Moving blocks never reach two neighbouring lanes.
-  - Every jump can be cleared, because gravity bends the ball's path by the same amount per tile at any speed.
-  - After each landing there's a stretch with no obstacles.
-- **Looks:** a pseudo-3D downhill view, tiles with visible thickness, a rolling ball, falling and shattering animations, and a saved high score.
+A copy of Slope: a ball rolls down an endless neon track and keeps getting faster. Steer with `LEFT`/`RIGHT` (or `A`/`D`). Like the real game, there's **no jump button and no brake**. The ball only leaves the ground when it rolls off a ramp or an edge.
 
-**Why it's harder than the dino game:** the dino only has to time a jump or duck. In Slope the AI has to choose a direction, commit to it, and plan ahead with momentum. Its steering is slidey, the track keeps moving under it, blocks move, and it has to aim its landings in mid-air.
+The track is built the way the real game builds it, following the [Slope Wiki](https://slope.fandom.com/wiki/Level_Generation):
+- **Sections:** pieces come in sections of 1, then 2, then 3, then 4 pieces: an early one, a middle one, then late ones. Every section ends with a **speedtunnel**, a round tunnel with a yellow speed-up pad and a ramp that flies you to the next section.
+- **Early pieces:**
+  - **RNG blocks:** a short platform with one block on it, never on the right edge.
+  - **Slants:** a wide platform tilted 30°. Gravity pulls you toward the low edge, so you keep steering uphill.
+  - **Straights:** a thin road that ends in a sudden drop.
+- **Middle pieces:**
+  - **Treblocks:** blocks on both sides, then a bigger one in the middle behind them, so you weave through.
+  - **Tunnels:** red brick walls on both sides, then a ramp.
+  - **Snakes:** a long, thin, curvy path that ends in a ramp.
+- **Late pieces:**
+  - **Hors:** big blocks sliding across the platform, 3 s per crossing, each on its own clock.
+  - **Verts:** three blocks that lift up (you roll under) and come back down, 2 s each way. The middle one runs 3 s late and the right one 6 s late.
+- **Thin pieces** (straights and snakes) stop appearing after 50 points.
+- **Ways to die:** roll off the edge, miss a landing, or smash into a red block.
+- **Always beatable:**
+  - Every ramp jump can be cleared, because gravity bends the ball's path by the same amount per tile at any speed.
+  - Two of the three verts are always open.
+  - Every piece leaves a way through. A test player that looks ahead survived the full 8000 frames, including the hardest and fastest part, on every track tested.
+- **Looks:** a pseudo-3D downhill view, neon tiles with visible thickness, speedtunnel rings, a rolling ball, a glowing shadow showing where you'll land, falling and shattering animations, and a saved high score.
+
+**Why it's harder than the dino game:** the dino only has to time a jump or duck. In Slope the AI has to choose a direction, commit to it, and plan ahead with momentum. Its steering is slidey, slants pull it sideways, blocks move across or up and down, and it has to aim its landings in mid-air.
 
 ## What you're looking at
 
@@ -53,7 +63,7 @@ A ball rolls down an endless neon track. Steer with `LEFT`/`RIGHT` (or `A`/`D`).
 **Bottom left:** the leader's brain.
 - **Inputs (left):** the numbers it sees.
   - **Dino (8 inputs):** distance to the next obstacle, its size and height, the next obstacle after that, the dino's own height and vertical speed, and the game speed.
-  - **Slope (9 inputs):** 7 **rays** fanned out in front of the ball (at -70° to +70°). Each one reports how far it gets before hitting an edge, a hole or a block (1.00 = clear for 10 tiles). The other two are the ball's sideways velocity and the game speed. The rays see straight across jump gaps, so in mid-air the AI can see where the landing platform is. The rays are drawn on the track in the training view: blue means clear, red means danger close.
+  - **Slope (10 inputs):** 7 **rays** fanned out in front of the ball (at -70° to +70°). Each one reports how far it gets before hitting an edge, a hole or a block (1.00 = clear for 10 tiles). The other three are the ball's sideways velocity, the game speed, and the **slant** under the ball, since rays can't see a tilt. The rays see straight across jump gaps, so in mid-air the AI can see where the landing platform is. The rays are drawn on the track in the training view: blue means clear, red means danger close.
 - **Lines:** the weights. Blue is positive, red is negative, and thicker means a larger value.
 - **Circles:** each neuron's activation, with brighter meaning stronger. Hidden neurons use `tanh`.
 - **Outputs (right):** run / jump / duck (dino) or left / straight / right (Slope). The one outlined in black has the highest score, and that's the action taken.
@@ -70,7 +80,7 @@ There's no backprop here. It uses a genetic algorithm over the weights:
 4. Make the rest by **crossover** (each weight comes from one of two top-25 parents) and **mutation** (random Gaussian nudges to about 15% of the weights).
 5. Repeat.
 
-The networks are tiny: 8 → 10 → 3 for the dino game and 9 → 16 → 3 for Slope. A generation ends when every player is dead or one survives 8000 frames.
+The networks are tiny: 8 → 10 → 3 for the dino game and 10 → 16 → 3 for Slope. A generation ends when every player is dead or one survives 8000 frames.
 
 Things to try for your course:
 - Change `hidden` in the `GAMES` table in `train.py`, or `POP`, `MUTATION_RATE` or `MUTATION_STRENGTH`, and compare the fitness curves.
