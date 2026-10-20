@@ -11,7 +11,7 @@ python train.py --headless    # train fast in the terminal (about 5 s for 25 gen
 python train.py --watch       # watch the best saved network play
 ```
 
-Training keys: `UP`/`DOWN` change simulation speed, `F` fast-forwards to the end of the generation, and `ESC` quits.
+Training keys: `UP`/`DOWN` change simulation speed, `F` fast-forwards to the end of the generation, `B` shows or hides the brain panel, and `ESC` quits.
 
 ## What you're looking at
 

@@ -145,14 +145,37 @@ class DinoGame:
 
 
 # --- Drawing (pygame) ------------------------------------------------------------
+def draw_dino(screen, game, color=(83, 83, 83, 255)):
+    """Draw a T-rex at the dino's position. color may include alpha for ghosts."""
+    import pygame
+
+    surf = pygame.Surface((DINO_W + 20, DINO_H), pygame.SRCALPHA)
+    eye = (247, 247, 247, color[3])
+    legs_up = game.y == 0 and (game.score // 6) % 2  # running animation
+    if game.ducking:
+        top = DINO_H - DINO_DUCK_H
+        pygame.draw.rect(surf, color, (0, top + 4, 44, 14))          # long low body
+        pygame.draw.rect(surf, color, (36, top, 22, 14))             # head forward
+        pygame.draw.rect(surf, eye, (40, top + 3, 3, 3))
+    else:
+        pygame.draw.rect(surf, color, (20, 0, 22, 14))               # head
+        pygame.draw.rect(surf, color, (32, 14, 10, 4))               # jaw
+        pygame.draw.rect(surf, eye, (25, 3, 3, 3))                   # eye
+        pygame.draw.rect(surf, color, (6, 14, 22, 20))               # body
+        pygame.draw.rect(surf, color, (0, 16, 8, 8))                 # tail
+        pygame.draw.rect(surf, color, (28, 20, 6, 3))                # arm
+    pygame.draw.rect(surf, color, (10, DINO_H - 10, 5, 10 - 4 * legs_up))
+    pygame.draw.rect(surf, color, (20, DINO_H - 10, 5, 6 + 4 * legs_up))
+    screen.blit(surf, (DINO_X, GROUND_Y - game.y - DINO_H))
+
+
 def draw(screen, font, game, label=""):
     import pygame
 
     screen.fill((247, 247, 247))
     pygame.draw.line(screen, (83, 83, 83), (0, GROUND_Y), (WIDTH, GROUND_Y), 2)
 
-    x, bottom, w, h = game._dino_box()
-    pygame.draw.rect(screen, (83, 83, 83), (x, GROUND_Y - bottom - h, w, h))
+    draw_dino(screen, game)
     for o in game.obstacles:
         color = (60, 140, 60) if o.kind == "cactus" else (120, 80, 160)
         pygame.draw.rect(screen, color, (o.x, GROUND_Y - o.top, o.w, o.h))

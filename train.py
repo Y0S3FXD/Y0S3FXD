@@ -15,6 +15,7 @@ Usage:
 While watching:
     UP / DOWN   simulation speed (frames per screen update)
     F           fast-forward: skip drawing until this generation ends
+    B           show / hide the brain panel
     ESC         quit (the best network is saved after every generation)
 """
 
@@ -22,8 +23,7 @@ import argparse
 
 import numpy as np
 
-from dino_game import (GROUND_Y, HEIGHT, N_ACTIONS, WIDTH, DinoGame,
-                       DINO_DUCK_H, DINO_H, DINO_W, DINO_X)
+from dino_game import GROUND_Y, HEIGHT, N_ACTIONS, WIDTH, DinoGame, draw_dino
 
 N_IN = DinoGame.N_OBS
 N_HIDDEN = 10
@@ -141,6 +141,7 @@ class Viewer:
         import pygame
         self.pg = pygame
         pygame.init()
+        self.show_brain = True
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT + PANEL_H))
         pygame.display.set_caption("Dino AI - neuroevolution")
         self.font = pygame.font.SysFont(None, 22)
@@ -162,6 +163,10 @@ class Viewer:
                     self.steps_per_frame = max(1, self.steps_per_frame // 2)
                 elif e.key == pg.K_f:
                     self.fast_forward = True
+                elif e.key == pg.K_b:
+                    self.show_brain = not self.show_brain
+                    extra = PANEL_H if self.show_brain else 0
+                    self.screen = pg.display.set_mode((WIDTH, HEIGHT + extra))
         return True
 
     def text(self, s, pos, color=INK, font=None):
@@ -179,29 +184,26 @@ class Viewer:
             color = (60, 140, 60) if o.kind == "cactus" else (120, 80, 160)
             pg.draw.rect(screen, color, (o.x, GROUND_Y - o.top, o.w, o.h))
 
-        ghost = pg.Surface((DINO_W, DINO_H), pg.SRCALPHA)
         for i in np.flatnonzero(gen.alive):
-            if i == lead:
-                continue
-            g = gen.games[i]
-            h = DINO_DUCK_H if g.ducking else DINO_H
-            ghost.fill((0, 0, 0, 0))
-            hue = (i * 47) % 200
-            pg.draw.rect(ghost, (hue, 120, 255 - hue, 70), (0, 0, DINO_W, h))
-            screen.blit(ghost, (DINO_X, GROUND_Y - g.y - h))
-        h = DINO_DUCK_H if game.ducking else DINO_H
-        pg.draw.rect(screen, INK, (DINO_X, GROUND_Y - game.y - h, DINO_W, h))
+            if i != lead:
+                hue = (i * 47) % 200
+                draw_dino(screen, gen.games[i], (hue, 120, 255 - hue, 45))
+        draw_dino(screen, game)
 
         self.text(f"generation {generation}", (10, 10), font=self.big)
         self.text(f"alive {gen.alive.sum()}/{len(gen.alive)}   score {gen.frames}   "
                   f"best ever {best_ever}   sim x{self.steps_per_frame}", (10, 36))
 
-        # --- brain of the leader ---
+        if self.show_brain:
+            self.draw_brain(gen, lead, history)
+        pg.display.flip()
+
+    def draw_brain(self, gen, lead, history):
+        pg, screen = self.pg, self.screen
         top = HEIGHT
         pg.draw.line(screen, (210, 210, 210), (0, top), (WIDTH, top), 2)
         self.draw_network(gen, lead, pg.Rect(10, top + 10, 480, PANEL_H - 20))
         self.draw_chart(history, pg.Rect(510, top + 30, 275, PANEL_H - 70))
-        pg.display.flip()
 
     def draw_network(self, gen, i, area):
         pg, screen = self.pg, self.screen
